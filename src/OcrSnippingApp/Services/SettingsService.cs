@@ -8,6 +8,7 @@ namespace OcrSnippingApp.Services
 {
     public sealed class AppSettings
     {
+        public string? GoogleCredentialPath { get; set; }
         public string HotkeyModifiers { get; set; } = string.Empty;
         public string HotkeyKey { get; set; } = string.Empty;
         public string OcrMode { get; set; } = "DocumentTextDetection"; // or TextDetection

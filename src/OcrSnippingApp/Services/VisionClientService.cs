@@ -1,5 +1,6 @@
 using System;
 using Google.Cloud.Vision.V1;
+using Google.Apis.Auth.OAuth2;
 
 namespace OcrSnippingApp.Services
 {

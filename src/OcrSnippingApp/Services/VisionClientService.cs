@@ -15,33 +15,16 @@ namespace OcrSnippingApp.Services
 
         private readonly ImageAnnotatorClient _client;
         private readonly DateTime _initializeTime;
+        private readonly SettingsService _settings;
 
         private VisionClientService()
         {
             _initializeTime = DateTime.Now;
-
-            // 環境変数の確認
-            var credPath = Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS");
-            if (string.IsNullOrEmpty(credPath))
-            {
-                throw new InvalidOperationException(
-                    "環境変数 GOOGLE_APPLICATION_CREDENTIALS が設定されていません。\n\n" +
-                    "PowerShellで以下のコマンドを実行してください:\n" +
-                    "$env:GOOGLE_APPLICATION_CREDENTIALS = \"C:\\Keys\\ocr-snipping-app.json\""
-                );
-            }
-
-            if (!System.IO.File.Exists(credPath))
-            {
-                throw new InvalidOperationException(
-                    $"認証ファイルが見つかりません: {credPath}\n\n" +
-                    "ファイルが存在するか確認してください。"
-                );
-            }
+            _settings = new SettingsService();
 
             try
             {
-                _client = ImageAnnotatorClient.Create();
+                _client = CreateClient();
                 LogInitialization();
             }
             catch (Exception ex)
@@ -59,25 +42,60 @@ namespace OcrSnippingApp.Services
 
         public DateTime InitializeTime => _initializeTime;
 
+        /// <summary>
+        /// 認証情報を解決してクライアントを作成
+        /// 優先順位:
+        /// 1. appsettings.json の GoogleCredentialPath
+        /// 2. 環境変数 GOOGLE_APPLICATION_CREDENTIALS (Process → User → Machine)
+        /// 3. デフォルトパス: google-credentials.json
+        /// </summary>
+        private ImageAnnotatorClient CreateClient()
+        {
+            // デバッグ情報をログ出力
+            Logger.LogInfo($"AppDir={AppContext.BaseDirectory}");
+            Logger.LogInfo($"AppSettings.GoogleCredentialPath={_settings.Current.GoogleCredentialPath ?? "<null>"}");
+
+            // 1) appsettings.json から取得
+            string? path = _settings.Current.GoogleCredentialPath;
+
+            // ヘルパー関数: 環境変数を取得
+            string GetEnv(EnvironmentVariableTarget target)
+            {
+                return Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", target) ?? string.Empty;
+            }
+
+            // 2) 環境変数から取得 (Process → User → Machine の順)
+            if (string.IsNullOrWhiteSpace(path))
+                path = GetEnv(EnvironmentVariableTarget.Process);
+            if (string.IsNullOrWhiteSpace(path))
+                path = GetEnv(EnvironmentVariableTarget.User);
+            if (string.IsNullOrWhiteSpace(path))
+                path = GetEnv(EnvironmentVariableTarget.Machine);
+
+            // 3) デフォルトパス
+            if (string.IsNullOrWhiteSpace(path))
+                path = System.IO.Path.Combine(AppContext.BaseDirectory, "google-credentials.json");
+
+            // 検証
+            if (!System.IO.File.Exists(path))
+            {
+                throw new InvalidOperationException(
+                    $"Vision credentials not found: '{path}'\n\n" +
+                    "設定方法:\n" +
+                    "1. appsettings.json に GoogleCredentialPath を追加\n" +
+                    "2. 環境変数 GOOGLE_APPLICATION_CREDENTIALS を設定\n" +
+                    "3. google-credentials.json をアプリと同じフォルダに配置"
+                );
+            }
+
+            Logger.LogInfo($"Vision: using credential '{path}'");
+            return new ImageAnnotatorClientBuilder { CredentialsPath = path }.Build();
+        }
+
         private void LogInitialization()
         {
-            // デバッグ用ログ（必要に応じてファイルに出力）
-            var logMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Vision APIクライアントを初期化しました。";
-            System.Diagnostics.Debug.WriteLine(logMessage);
-
-            // オプション：ログファイルに出力
-            try
-            {
-                var logPath = System.IO.Path.Combine(
-                    System.IO.Path.GetTempPath(),
-                    "OcrSnippingApp_VisionClient.log"
-                );
-                System.IO.File.AppendAllText(logPath, logMessage + Environment.NewLine);
-            }
-            catch
-            {
-                // ログ出力失敗は無視
-            }
+            var logMessage = $"Vision APIクライアントを初期化しました。 ({_initializeTime:yyyy-MM-dd HH:mm:ss})";
+            Logger.LogInfo(logMessage);
         }
 
         public static bool IsInitialized => _instance.IsValueCreated;
